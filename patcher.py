@@ -14,42 +14,50 @@ def patch_clean_telegram():
     with open(settings_path, "r", encoding="utf-8") as f:
         code = f.read()
 
-    # 0. ОЧИСТКА: Полностью вычищаем старые кейсы 9999, чтобы избежать дублирования кода
+    # 0. ОЧИСТКА: Вычищаем старые следы мода, чтобы не было накладок
     code = re.sub(r'case 9999:.*?break;', '', code, flags=re.DOTALL)
+    werygram_btn = 'items.add(SettingCell.Factory.of(9999, 0xFF55CA47, 0xFF27B434, R.drawable.msg_settings, "WeryGram"));'
+    code = code.replace(werygram_btn, "")
+    code = code.replace('items.add(UItem.asAction(9999, R.drawable.msg_settings, "WeryGram"));', "")
 
     is_button_ok = False
     is_click_ok = False
 
-    # Базовое объявление нашей кнопки в списке
-    werygram_btn = 'items.add(SettingCell.Factory.of(9999, 0xFF55CA47, 0xFF27B434, R.drawable.msg_settings, "WeryGram"));'
+    # 1. УМНЫЙ ПОИСК ЯКОРЯ ДЛЯ КНОПКИ (Ищет сквозь переносы строк)
+    match_chat = re.search(r'(items\.add\([\s\S]*?[cC]hat[sS]ettings[\s\S]*?\);)', code)
+    match_privacy = re.search(r'(items\.add\([\s\S]*?[pP]rivacy[\s\S]*?\);)', code)
+    match_notifications = re.search(r'(items\.add\([\s\S]*?[nN]otif[\s\S]*?\);)', code)
 
-    # 1. Проверяем/вставляем кнопку в меню настроек
-    if "9999" in code and "SettingCell.Factory.of" in code:
+    if match_chat:
+        anchor = match_chat.group(1)
+        code = code.replace(anchor, f'{anchor}\n        {werygram_btn}')
         is_button_ok = True
+        print("✅ Кнопка WeryGram успешно добавлена под 'Настройки чатов'!")
+    elif match_privacy:
+        anchor = match_privacy.group(1)
+        code = code.replace(anchor, f'{anchor}\n        {werygram_btn}')
+        is_button_ok = True
+        print("✅ Кнопка WeryGram успешно добавлена под 'Конфиденциальность'!")
+    elif match_notifications:
+        anchor = match_notifications.group(1)
+        code = code.replace(anchor, f'{anchor}\n        {werygram_btn}')
+        is_button_ok = True
+        print("✅ Кнопка WeryGram успешно добавлена под 'Уведомления'!")
     else:
-        match_chat = re.search(r'(items\.add\(.*?[cC]hat[sS]ettings.*?\);)', code)
-        if match_chat:
-            anchor = match_chat.group(1)
-            code = code.replace(anchor, f'{anchor}\n        {werygram_btn}')
-            is_button_ok = True
-            print("✅ Кнопка WeryGram успешно добавлена под 'Настройки чатов'.")
+        print("🚨 ОШИБКА: Не удалось найти ни один стандартный раздел (ChatSettings, Privacy, Notifications) для вставки кнопки!")
 
-    # 2. Мощный инжект диалогового окна с кнопками Вкл/Выкл прямо в switch(item.id)
+    # 2. ВНЕДРЕНИЕ ДИАЛОГОВОГО ОКНА (ОБРАБОТЧИК КЛИКА)
     switch_anchor = "switch (item.id) {"
     if switch_anchor in code:
-        # Пишем чистый Java-код для диалогового окна и сохранения состояния в SharedPreferences
         dialog_code = """case 9999:
             if (SettingsActivity.this.getParentActivity() != null) {
                 android.app.AlertDialog.Builder builder = new android.app.AlertDialog.Builder(SettingsActivity.this.getParentActivity());
                 
-                // Читаем текущий статус из памяти для заголовка
                 boolean isEnabled = SettingsActivity.this.getParentActivity().getSharedPreferences("werygram_settings", android.content.Context.MODE_PRIVATE).getBoolean("visual_premium", false);
                 builder.setTitle("WeryGram Premium (" + (isEnabled ? "Включен" : "Выключен") + ")");
                 
-                // Твой текст описания функции
                 builder.setMessage("Premium данная функция включает телеграм премиум визуально");
                 
-                // Кнопка ВКЛЮЧИТЬ
                 builder.setPositiveButton("Включить", new android.content.DialogInterface.OnClickListener() {
                     @Override
                     public void onClick(android.content.DialogInterface dialog, int which) {
@@ -58,7 +66,6 @@ def patch_clean_telegram():
                     }
                 });
                 
-                // Кнопка ВЫКЛЮЧИТЬ
                 builder.setNegativeButton("Выключить", new android.content.DialogInterface.OnClickListener() {
                     @Override
                     public void onClick(android.content.DialogInterface dialog, int which) {
@@ -75,14 +82,15 @@ def patch_clean_telegram():
         is_click_ok = True
         print("✅ Интерактивное диалоговое окно успешно вшито в обработчик кликов!")
 
+    # Финальная проверка работоспособности патча
     if not is_button_ok or not is_click_ok:
-        print("🚨 Ошибка применения патча.")
+        print("🚨 Критическая ошибка: Патч применен не полностью. Сборка остановлена.")
         sys.exit(1)
 
     with open(settings_path, "w", encoding="utf-8") as f:
         f.write(code)
 
-    print("\n🎉 ВСЁ ГОТОВО! Логика полностью перенесена в главный файл настроек.")
+    print("\n🎉 ВСЁ ГОТОВО! Логика успешно обновлена.")
 
 if __name__ == "__main__":
     patch_clean_telegram()
