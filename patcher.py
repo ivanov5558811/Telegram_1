@@ -341,13 +341,57 @@ def patch_messages_controller(code: str) -> str:
         print("ℹ️  MessagesController уже содержит патч — пропускаем.")
         return code
 
+    # Точная сигнатура из реального файла:
+    # public TLRPC.User getUser(Long id) {
+    #     if (id == 0) {
+    #         return UserConfig.getInstance(currentAccount).getCurrentUser();
+    #     }
+    #     return users.get(id);
+    # }
+    OLD = (
+        "public TLRPC.User getUser(Long id) {\n"
+        "        if (id == 0) {\n"
+        "            return UserConfig.getInstance(currentAccount).getCurrentUser();\n"
+        "        }\n"
+        "        return users.get(id);\n"
+        "    }"
+    )
+    NEW = """\
+public TLRPC.User getUser(Long id) {
+        if (id == 0) {
+            return UserConfig.getInstance(currentAccount).getCurrentUser();
+        }
+        TLRPC.User user = users.get(id);
+        if (user != null && id != null &&
+                id.equals(UserConfig.getInstance(currentAccount).getClientUserId())) {
+            if (MessagesController.getGlobalMainSettings()
+                    .getBoolean("visual_premium", false)) {
+                user.premium  = true;
+                user.verified = true;
+            }
+        }
+        return user;
+    }"""
+
+    if OLD in code:
+        patched = code.replace(OLD, NEW, 1)
+        print("✅ Перехватчик getUser() добавлен в MessagesController.")
+        return patched
+
+    # Запасной вариант — regex на случай незначительных отличий в пробелах
     patched = re.sub(
-        r'public TLRPC\.User getUser\((Long|Integer)\s+(\w+)\)\s*\{\s*return\s+(\w+)\.get\(\2\);\s*\}',
-        r'''public TLRPC.User getUser(\1 \2) {
-        TLRPC.User user = \3.get(\2);
-        if (user != null && \2 != null &&
-                \2.equals(UserConfig.getInstance(currentAccount).getClientUserId())) {
-            if (org.telegram.messenger.MessagesController.getGlobalMainSettings()
+        r'public TLRPC\.User getUser\(Long\s+(\w+)\)\s*\{'
+        r'\s*if\s*\(\1\s*==\s*0\)\s*\{'
+        r'\s*return\s+UserConfig\.getInstance\(currentAccount\)\.getCurrentUser\(\);\s*\}'
+        r'\s*return\s+(\w+)\.get\(\1\);\s*\}',
+        r'''public TLRPC.User getUser(Long \1) {
+        if (\1 == 0) {
+            return UserConfig.getInstance(currentAccount).getCurrentUser();
+        }
+        TLRPC.User user = \2.get(\1);
+        if (user != null && \1 != null &&
+                \1.equals(UserConfig.getInstance(currentAccount).getClientUserId())) {
+            if (MessagesController.getGlobalMainSettings()
                     .getBoolean("visual_premium", false)) {
                 user.premium  = true;
                 user.verified = true;
@@ -359,9 +403,9 @@ def patch_messages_controller(code: str) -> str:
     )
 
     if patched != code:
-        print("✅ Перехватчик getUser() добавлен в MessagesController.")
+        print("✅ Перехватчик getUser() добавлен (regex-метод).")
     else:
-        print("⚠️  Сигнатура getUser() не совпала — MessagesController не изменён.")
+        print("⚠️  getUser() не найден — пропускаем. Патч UserConfig достаточен.")
 
     return patched
 
