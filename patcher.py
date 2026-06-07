@@ -29,11 +29,12 @@ def patch_once(path, marker, insertion, before=False):
 ACTIVITY = '''\
 package org.telegram.ui;
 import android.content.Context;
+import android.content.SharedPreferences;
 import android.widget.LinearLayout;
 import android.widget.Switch;
 import android.widget.TextView;
 import org.telegram.messenger.AndroidUtilities;
-import org.telegram.messenger.UserConfig;
+import org.telegram.messenger.MessagesController;
 import org.telegram.ui.ActionBar.ActionBar;
 import org.telegram.ui.ActionBar.BaseFragment;
 import org.telegram.ui.ActionBar.Theme;
@@ -63,19 +64,25 @@ public class WeryGramPremiumActivity extends BaseFragment {
         sub.setText("\u0414\u0430\u0451\u0442 \u0432\u0438\u0437\u0443\u0430\u043b\u044c\u043d\u043e Telegram Premium");
         sub.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 13);
         sub.setTextColor(Theme.getColor(Theme.key_windowBackgroundWhiteGrayText2));
-        labels.addView(title); labels.addView(sub);
+        labels.addView(title);
+        labels.addView(sub);
         android.view.View div = new android.view.View(context);
         div.setBackgroundColor(Theme.getColor(Theme.key_divider));
         LinearLayout.LayoutParams dp2 = new LinearLayout.LayoutParams(AndroidUtilities.dp(1), AndroidUtilities.dp(40));
         dp2.setMargins(AndroidUtilities.dp(12),0,AndroidUtilities.dp(12),0);
         div.setLayoutParams(dp2);
+        final SharedPreferences prefs = MessagesController.getGlobalMainSettings();
         Switch toggle = new Switch(context);
-        UserConfig cfg = UserConfig.getInstance(currentAccount);
-        toggle.setChecked(cfg.werygramVisualPremium);
-        toggle.setOnCheckedChangeListener((btn, checked) -> { cfg.werygramVisualPremium = checked; cfg.saveConfig(false); });
-        row.addView(labels); row.addView(div); row.addView(toggle);
+        toggle.setChecked(prefs.getBoolean("wery_visual_premium", false));
+        toggle.setOnCheckedChangeListener((btn, checked) -> {
+            prefs.edit().putBoolean("wery_visual_premium", checked).apply();
+        });
+        row.addView(labels);
+        row.addView(div);
+        row.addView(toggle);
         root.addView(row);
-        fragmentView = root; return fragmentView;
+        fragmentView = root;
+        return fragmentView;
     }
 }
 '''
@@ -83,34 +90,6 @@ public class WeryGramPremiumActivity extends BaseFragment {
 def main():
     print("▶ WeryGram patcher\n")
     errors = 0
-
-    uc = find_file("UserConfig.java")
-    if not uc: print("✘ UserConfig.java not found", file=sys.stderr); sys.exit(1)
-
-    uc_anchors = ["public boolean registeredForPush;", "public boolean draftsLoaded;", "public boolean contactsReimported;"]
-    uc_anchor = next((a for a in uc_anchors if a in read(uc)), None)
-    if uc_anchor:
-        if not patch_once(uc, uc_anchor, "    public boolean werygramVisualPremium = false;"): errors += 1
-    else:
-        print("✘ UserConfig: якорь для поля не найден", file=sys.stderr); errors += 1
-
-    save_anchors = ["editor.commit();", "editor.apply();"]
-    save_anchor = next((a for a in save_anchors if a in read(uc)), None)
-    if save_anchor:
-        if not patch_once(uc, save_anchor, '        editor.putBoolean("werygramVisualPremium", werygramVisualPremium);', before=True): errors += 1
-    else:
-        print("✘ UserConfig: editor.commit/apply не найден", file=sys.stderr); errors += 1
-
-    load_anchors = [
-        'registeredForPush = preferences.getBoolean("push_registered", false);',
-        'draftsLoaded = preferences.getBoolean(',
-        'contactsReimported = preferences.getBoolean(',
-    ]
-    load_anchor = next((a for a in load_anchors if a in read(uc)), None)
-    if load_anchor:
-        if not patch_once(uc, load_anchor, '        werygramVisualPremium = preferences.getBoolean("werygramVisualPremium", false);'): errors += 1
-    else:
-        print("✘ UserConfig: якорь loadConfig не найден", file=sys.stderr); errors += 1
 
     sa = find_file("SettingsActivity.java")
     if not sa: print("✘ SettingsActivity.java not found", file=sys.stderr); sys.exit(1)
@@ -127,15 +106,12 @@ def main():
         if not patch_once(sa, fill_anchor,
             fill_anchor.replace("{", "{\n        items.add(0, UItem.asButton(1000, R.drawable.msg_settings, \"WeryGram\"));")):
             errors += 1
-
         click_anchors = [
             "void onItemClick(UItem item, View view, int position, float x, float y) {",
             "public void onItemClick(UItem item, View view, int position, float x, float y) {",
             "private void onItemClick(UItem item, View view, int position, float x, float y) {",
-            "private void onClick(UItem item, View view, int position, float x, float y) {",
             "void onClick(UItem item, View view, int position, float x, float y) {",
             "public void onClick(UItem item, View view, int position, float x, float y) {",
-            "public boolean onItemClick(int id) {",
             "void onClick(UItem item) {",
             "public void onClick(UItem item) {",
             "onItemClick = (item) -> {",
@@ -153,10 +129,9 @@ def main():
 
     dest = os.path.join(os.path.dirname(sa), "WeryGramPremiumActivity.java")
     if os.path.exists(dest):
-        print("↩ skip WeryGramPremiumActivity.java")
-    else:
-        with open(dest, "w", encoding="utf-8") as f: f.write(ACTIVITY)
-        print("✔ created WeryGramPremiumActivity.java")
+        os.remove(dest)
+    with open(dest, "w", encoding="utf-8") as f: f.write(ACTIVITY)
+    print("✔ created WeryGramPremiumActivity.java")
 
     if errors > 0:
         print(f"\n✘ {errors} ошибок — сборка остановлена", file=sys.stderr)
