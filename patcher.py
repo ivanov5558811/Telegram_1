@@ -17,13 +17,16 @@ def write(p, t):
     with open(p, "w", encoding="utf-8") as f: f.write(t)
     print(f"✔ {os.path.relpath(p, ROOT)}")
 
-def insert_after(path, marker, insertion):
-    text = read(path)
-    if insertion.strip() in text:
-        print(f"↩ skip {os.path.relpath(path, ROOT)}"); return True
-    if marker not in text:
-        print(f"✘ NOT FOUND: {marker!r}", file=sys.stderr); return False
-    write(path, text.replace(marker, marker + "\n" + insertion, 1)); return True
+def find_method_end(text, open_brace):
+    depth = 0
+    i = open_brace
+    while i < len(text):
+        if text[i] == '{': depth += 1
+        elif text[i] == '}':
+            depth -= 1
+            if depth == 0: return i
+        i += 1
+    return len(text) - 1
 
 def insert_before(path, marker, insertion):
     text = read(path)
@@ -33,13 +36,13 @@ def insert_before(path, marker, insertion):
         print(f"✘ NOT FOUND: {marker!r}", file=sys.stderr); return False
     write(path, text.replace(marker, insertion + "\n" + marker, 1)); return True
 
-def replace_in(path, old, new):
+def insert_after(path, marker, insertion):
     text = read(path)
-    if new.strip() in text:
+    if insertion.strip() in text:
         print(f"↩ skip {os.path.relpath(path, ROOT)}"); return True
-    if old not in text:
-        print(f"✘ NOT FOUND: {old!r}", file=sys.stderr); return False
-    write(path, text.replace(old, new, 1)); return True
+    if marker not in text:
+        print(f"✘ NOT FOUND: {marker!r}", file=sys.stderr); return False
+    write(path, text.replace(marker, marker + "\n" + insertion, 1)); return True
 
 ACTIVITY = '''\
 package org.telegram.ui;
@@ -112,21 +115,29 @@ def main():
     # import
     if not insert_before(sa, "import org.telegram.ui.Components.", "import org.telegram.ui.WeryGramPremiumActivity;"): errors += 1
 
-    # fillItems — вставляем строку ВНУТРЬ метода после {
+    # fillItems — добавляем кнопку В КОНЕЦ метода
     fill_anchors = [
         "void fillItems(ArrayList<UItem> items, UniversalAdapter adapter) {",
         "public void fillItems(ArrayList<UItem> items, UniversalAdapter adapter) {",
         "private void fillItems(ArrayList<UItem> items, UniversalAdapter adapter) {",
     ]
-    fill_anchor = next((a for a in fill_anchors if a in read(sa)), None)
+    text = read(sa)
+    fill_anchor = next((a for a in fill_anchors if a in text), None)
     if fill_anchor:
-        if not insert_after(sa, fill_anchor,
-            '        items.add(0, UItem.asButton(1000, R.drawable.msg_settings, "WeryGram"));'):
-            errors += 1
+        if 'UItem.asButton(1000' not in text:
+            anchor_pos = text.find(fill_anchor)
+            open_brace = text.find('{', anchor_pos)
+            method_end = find_method_end(text, open_brace)
+            new_text = (text[:method_end] +
+                '        items.add(UItem.asButton(1000, R.drawable.msg_settings, "WeryGram"));\n' +
+                text[method_end:])
+            write(sa, new_text)
+        else:
+            print(f"↩ skip fillItems")
     else:
         print("✘ fillItems не найден", file=sys.stderr); errors += 1
 
-    # onClick — вставляем строку ВНУТРЬ метода после {
+    # onClick
     click_anchors = [
         "void onItemClick(UItem item, View view, int position, float x, float y) {",
         "public void onItemClick(UItem item, View view, int position, float x, float y) {",
@@ -137,13 +148,9 @@ def main():
         "void onClick(UItem item) {",
         "public void onClick(UItem item) {",
     ]
-    click_anchor = next((a for a in click_anchors if a in read(sa)), None)
-    if click_anchor:
-        if not insert_after(sa, click_anchor,
-            '        if (item.id == 1000) { presentFragment(new WeryGramPremiumActivity()); return; }'):
-            errors += 1
-    else:
-        print("✘ onClick не найден", file=sys.stderr); errors += 1
+    if not insert_after(sa, next((a for a in click_anchors if a in read(sa)), ""),
+        '        if (item.id == 1000) { presentFragment(new WeryGramPremiumActivity()); return; }'):
+        errors += 1
 
     # WeryGramPremiumActivity
     dest = os.path.join(os.path.dirname(sa), "WeryGramPremiumActivity.java")
