@@ -117,6 +117,13 @@ def patch_user_config(errors):
     if 'wery_visual_premium' in text:
         print("↩ skip UserConfig"); return errors
 
+    # --- ДОБАВЛЕННЫЙ ХУК ДЛЯ КЛИЕНТСКИХ МЕТОДОВ (ФИКС СБРОСА СТИКЕРОВ И СТАТУСОВ) ---
+    if "public boolean isPremium() {" in text:
+        text = text.replace(
+            "public boolean isPremium() {",
+            "public boolean isPremium() {\n        if (org.telegram.messenger.MessagesController.getGlobalMainSettings().getBoolean(\"wery_visual_premium\", false)) return true;"
+        )
+
     # Находим getCurrentUser() и первый return currentUser; после него
     sig_pos = text.find("getCurrentUser()")
     if sig_pos == -1:
@@ -211,3 +218,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+    
