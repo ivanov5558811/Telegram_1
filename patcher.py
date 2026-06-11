@@ -45,7 +45,7 @@ package org.telegram.ui;
 import org.json.JSONArray;
 import org.json.JSONObject;
 import org.telegram.messenger.AndroidUtilities;
-import org.telegram.messenger.ConnectionsManager;
+import org.telegram.tgnet.ConnectionsManager;
 import org.telegram.messenger.MessagesController;
 import org.telegram.tgnet.TLRPC;
 
