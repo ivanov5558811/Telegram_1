@@ -479,9 +479,11 @@ def main():
     fill_anchor = next((a for a in fill_anchors if a in text), None)
     if fill_anchor:
         if 'UItem.asButton(1000' not in text:
+            # Добавляем WeryGram первой кнопкой, потом Аккаунт вторым
             if not insert_after(sa, fill_anchor,
-                '        items.add(0, UItem.asButton(1000, R.drawable.msg_settings, "WeryGram"));'):
+                '        items.add(UItem.asButton(1000, R.drawable.msg_settings, "WeryGram"));'):
                 errors += 1
+            print("✔ WeryGram button added as first item")
         else:
             print("↩ skip fillItems")
     else:
@@ -504,6 +506,7 @@ def main():
         if not insert_after(sa, click_anchor,
             '        if (item.id == 1000) { presentFragment(new WeryGramPremiumActivity()); return; }'):
             errors += 1
+        print("✔ WeryGram click handler added")
     else:
         print("✘ onClick не найден", file=sys.stderr); errors += 1
 
