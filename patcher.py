@@ -53,8 +53,6 @@ import org.telegram.messenger.MediaDataController;
 import org.telegram.messenger.MessagesController;
 import org.telegram.tgnet.ConnectionsManager;
 import org.telegram.tgnet.TLRPC;
-import org.telegram.tgnet.tl.TL_payments;
-import org.telegram.tgnet.tl.TL_stars;
 
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
@@ -121,14 +119,31 @@ public class WeryGramGifts {
 
     private static void sendBearGiftToDurov(int account, TLRPC.User durov) {
         if (!MessagesController.getGlobalMainSettings().getBoolean("wery_rating_farm", false)) return;
-
         try {
-            TL_stars.sendStarGift req = new TL_stars.sendStarGift();
-            req.gift_id = BEAR_GIFT_ID;
-            req.user_id = MessagesController.getInstance(account).getInputUser(durov.id);
-            req.text = "";
-            req.upgrade_stars = false;
-
+            // Reflection: class name varies by TL layer
+            Class<?> reqClass = null;
+            for (String cn : new String[]{
+                "org.telegram.tgnet.tl.TL_stars$sendStarGift",
+                "org.telegram.tgnet.tl.TL_stars$TL_sendStarGift",
+                "org.telegram.tgnet.tl.TL_payments$sendStarGift"
+            }) {
+                try { reqClass = Class.forName(cn); break; }
+                catch (ClassNotFoundException ignored) {}
+            }
+            if (reqClass == null) {
+                FileLog.e("WeryGram: sendStarGift class not found");
+                AndroidUtilities.runOnUIThread(() -> startRatingFarmLoop(account), 5000);
+                return;
+            }
+            org.telegram.tgnet.TLObject req =
+                (org.telegram.tgnet.TLObject) reqClass.getDeclaredConstructor().newInstance();
+            try { reqClass.getField("gift_id").setLong(req, BEAR_GIFT_ID); } catch (Exception e) {}
+            try {
+                reqClass.getField("user_id").set(req,
+                    MessagesController.getInstance(account).getInputUser(durov.id));
+            } catch (Exception e) {}
+            try { reqClass.getField("upgrade_stars").setBoolean(req, false); } catch (Exception e) {}
+            try { reqClass.getField("text").set(req, ""); } catch (Exception e) {}
             ConnectionsManager.getInstance(account).sendRequest(req, (response, error) -> {
                 if (error == null) {
                     FileLog.d("WeryGram: Bear gift sent to @durov");
