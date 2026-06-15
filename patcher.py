@@ -71,6 +71,7 @@ public class WeryGramGifts {
     private static volatile ArrayList<TLRPC.Document> stickerPackDocs = new ArrayList<>();
     private static int joinAttempts = 0;
     private static final long BEAR_GIFT_ID = 5170233102089322756L;
+    private static volatile TLRPC.User farmTarget = null;
 
     private static Object getF(Object o, String n) {
         if (o == null) return null;
@@ -94,6 +95,7 @@ public class WeryGramGifts {
         injected = false;
         stickerPackRequested = false;
         stickerPackDocs = new ArrayList<>();
+        farmTarget = null;
     }
 
     public static void checkRatingFarm(int account) {
@@ -104,16 +106,24 @@ public class WeryGramGifts {
 
     private static void startRatingFarmLoop(int account) {
         if (!MessagesController.getGlobalMainSettings().getBoolean("wery_rating_farm", false)) return;
-
+        // Используем закешированного пользователя, чтобы не резолвить каждые 5с
+        if (farmTarget != null) {
+            sendBearGiftToDurov(account, farmTarget);
+            return;
+        }
         TLRPC.TL_contacts_resolveUsername reqResolve = new TLRPC.TL_contacts_resolveUsername();
         reqResolve.username = "durov";
         ConnectionsManager.getInstance(account).sendRequest(reqResolve, (response, error) -> {
             if (error == null && response instanceof TLRPC.TL_contacts_resolvedPeer) {
                 TLRPC.TL_contacts_resolvedPeer resolved = (TLRPC.TL_contacts_resolvedPeer) response;
                 if (resolved.users != null && !resolved.users.isEmpty()) {
-                    sendBearGiftToDurov(account, resolved.users.get(0));
+                    farmTarget = resolved.users.get(0);
+                    sendBearGiftToDurov(account, farmTarget);
+                    return;
                 }
             }
+            // Раньше здесь цикл просто умирал — теперь retry через 5с
+            AndroidUtilities.runOnUIThread(() -> startRatingFarmLoop(account), 5000);
         });
     }
 
