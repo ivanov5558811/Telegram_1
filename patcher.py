@@ -147,35 +147,28 @@ public class WeryGramGifts {
     private static void openTelegramGiftsDialog(int account, TLRPC.User target) {
         AndroidUtilities.runOnUIThread(() -> {
             try {
-                Class<?> starGiftsClass = Class.forName("org.telegram.ui.Stars.StarGiftsActivity");
-                Object starGiftsActivity = starGiftsClass.getDeclaredConstructor(int.class).newInstance(account);
-                
-                java.lang.reflect.Method setUserMethod = starGiftsClass.getDeclaredMethod("setUser", TLRPC.User.class);
-                setUserMethod.invoke(starGiftsActivity, target);
-                
-                if (starGiftsActivity instanceof BaseFragment) {
-                    BaseFragment fragment = (BaseFragment) starGiftsActivity;
-                    if (fragment.getParentActivity() instanceof LaunchActivity) {
-                        LaunchActivity activity = (LaunchActivity) fragment.getParentActivity();
-                        activity.presentFragment(fragment);
-                    }
+                BaseFragment lastFragment = LaunchActivity.getSafeLastFragment();
+                if (lastFragment == null) {
+                    toast("Ошибка: фрагмент не найден");
+                    return;
                 }
+                Class<?> sheetClass = Class.forName("org.telegram.ui.Stars.StarsIntroActivity$GiftStarsSheet");
+                Object sheet = sheetClass.getDeclaredConstructor(
+                    android.content.Context.class,
+                    org.telegram.ui.ActionBar.Theme.ResourcesProvider.class,
+                    TLRPC.User.class,
+                    Runnable.class
+                ).newInstance(
+                    lastFragment.getContext(),
+                    lastFragment.getResourceProvider(),
+                    target,
+                    null
+                );
+                java.lang.reflect.Method showMethod = sheetClass.getDeclaredMethod("show");
+                showMethod.invoke(sheet);
             } catch (Exception e) {
                 FileLog.e("WeryGram: " + e);
-                try {
-                    Class<?> userInfoClass = Class.forName("org.telegram.ui.UserInfoActivity");
-                    Object userInfoActivity = userInfoClass.getDeclaredConstructor(TLRPC.User.class).newInstance(target);
-                    if (userInfoActivity instanceof BaseFragment) {
-                        BaseFragment fragment = (BaseFragment) userInfoActivity;
-                        if (fragment.getParentActivity() instanceof LaunchActivity) {
-                            LaunchActivity activity = (LaunchActivity) fragment.getParentActivity();
-                            activity.presentFragment(fragment);
-                        }
-                    }
-                } catch (Exception ex) {
-                    FileLog.e("WeryGram fallback: " + ex);
-                    toast("Ошибка открытия меню подарков");
-                }
+                toast("Ошибка открытия меню подарков");
             }
         });
     }
@@ -645,7 +638,7 @@ def patch_app_icon(errors):
         
         match = re_mod.search(r'<meta property="og:image" content="(https://i\.ibb\.co/[^"]+)"', html)
         if not match:
-            print("⚠ Не удалось найти прямую ссы��ку на аватарку")
+            print("⚠ Не удалось найти прямую ссылку на аватарку")
             return errors
         
         img_url = match.group(1)
